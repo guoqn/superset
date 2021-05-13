@@ -21,25 +21,34 @@ x-superset-depends-on: &superset-depends-on
 x-superset-volumes: &superset-volumes
   # /app/pythonpath_docker will be appended to the PYTHONPATH in the final container
   - ./docker:/app/docker
-  - superset_home:/app/superset_home
+  - ./superset:/app/superset
+  - ./superset-frontend:/app/superset-frontend
+  - ./superset_home:/app/superset_home
+  - ./tests:/app/tests
 
 version: "3.7"
 services:
   redis:
-    image: redis:latest
+    image: redis:3.2
     container_name: superset_cache
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
     volumes:
-      - redis:/data
-
+      - ../db/redis:/data
+    environment:
+      TZ: Asia/Shanghai
   db:
     env_file: docker/.env
     image: postgres:10
     container_name: superset_db
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:5432:5432"
     volumes:
-      - db_home:/var/lib/postgresql/data
-
+      - ../db/db_home:/var/lib/postgresql/data
+    environment:
+      TZ: Asia/Shanghai
   superset:
     env_file: docker/.env-non-dev
     image: *superset-image
@@ -51,6 +60,8 @@ services:
       - 8088:8088
     depends_on: *superset-depends-on
     volumes: *superset-volumes
+    environment:
+      TZ: Asia/Shanghai
 
   superset-init:
     image: *superset-image
@@ -60,6 +71,8 @@ services:
     depends_on: *superset-depends-on
     user: "root"
     volumes: *superset-volumes
+    environment:
+      TZ: Asia/Shanghai
 
   superset-worker:
     image: *superset-image
@@ -70,6 +83,8 @@ services:
     depends_on: *superset-depends-on
     user: "root"
     volumes: *superset-volumes
+    environment:
+      TZ: Asia/Shanghai
 
   superset-worker-beat:
     image: *superset-image
@@ -80,11 +95,12 @@ services:
     depends_on: *superset-depends-on
     user: "root"
     volumes: *superset-volumes
-
-volumes:
-  superset_home:
-    external: false
-  db_home:
-    external: false
-  redis:
-    external: false
+    environment:
+      TZ: Asia/Shanghai
+# volumes:
+#   superset_home:
+#     external: false
+#   db_home:
+#     external: false
+#   redis:
+#     external: false

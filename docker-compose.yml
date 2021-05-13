@@ -23,20 +23,21 @@ x-superset-volumes: &superset-volumes
   - ./docker:/app/docker
   - ./superset:/app/superset
   - ./superset-frontend:/app/superset-frontend
-  - superset_home:/app/superset_home
+  - ./superset_home:/app/superset_home
   - ./tests:/app/tests
 
 version: "3.7"
 services:
   redis:
-    image: redis:latest
+    image: redis:3.2
     container_name: superset_cache
     restart: unless-stopped
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
-      - redis:/data
-
+      - ../db/redis:/data
+    environment:
+      TZ: Asia/Shanghai
   db:
     env_file: docker/.env
     image: postgres:10
@@ -45,8 +46,9 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      - db_home:/var/lib/postgresql/data
-
+      - ../db/db_home:/var/lib/postgresql/data
+    environment:
+      TZ: Asia/Shanghai
   superset:
     env_file: docker/.env
     image: *superset-image
@@ -59,7 +61,7 @@ services:
     depends_on: *superset-depends-on
     volumes: *superset-volumes
     environment:
-      CYPRESS_CONFIG: "${CYPRESS_CONFIG}"
+      TZ: Asia/Shanghai
 
   superset-websocket:
     container_name: superset_websocket
@@ -98,8 +100,7 @@ services:
     user: "root"
     volumes: *superset-volumes
     environment:
-      CYPRESS_CONFIG: "${CYPRESS_CONFIG}"
-
+      TZ: Asia/Shanghai
   superset-node:
     image: node:14
     container_name: superset_node
@@ -107,7 +108,8 @@ services:
     env_file: docker/.env
     depends_on: *superset-depends-on
     volumes: *superset-volumes
-
+    environment:
+      TZ: Asia/Shanghai
   superset-worker:
     image: *superset-image
     container_name: superset_worker
@@ -117,7 +119,8 @@ services:
     depends_on: *superset-depends-on
     user: "root"
     volumes: *superset-volumes
-
+    environment:
+      TZ: Asia/Shanghai
   superset-worker-beat:
     image: *superset-image
     container_name: superset_worker_beat
@@ -127,7 +130,8 @@ services:
     depends_on: *superset-depends-on
     user: "root"
     volumes: *superset-volumes
-
+    environment:
+      TZ: Asia/Shanghai
   superset-tests-worker:
     image: *superset-image
     container_name: superset_tests_worker
@@ -139,15 +143,16 @@ services:
       REDIS_CELERY_DB: 2
       REDIS_RESULTS_DB: 3
       REDIS_HOST: localhost
+      TZ: Asia/Shanghai
     network_mode: host
     depends_on: *superset-depends-on
     user: "root"
     volumes: *superset-volumes
 
-volumes:
-  superset_home:
-    external: false
-  db_home:
-    external: false
-  redis:
-    external: false
+#volumes:
+#  superset_home:
+#    external: false
+#  db_home:
+#    external: false
+#  redis:
+#    external: false

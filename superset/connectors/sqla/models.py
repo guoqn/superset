@@ -272,7 +272,7 @@ class TableColumn(Model, BaseColumn):
                 and time_range_endpoints[1] == utils.TimeRangeEndpoint.EXCLUSIVE
             ):
                 l.append(
-                    col < text(self.dttm_sql_literal(end_dttm, time_range_endpoints))
+                    col <= text(self.dttm_sql_literal(end_dttm, time_range_endpoints))
                 )
             else:
                 l.append(col <= text(self.dttm_sql_literal(end_dttm, None)))

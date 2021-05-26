@@ -37,7 +37,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, DOUBLE_PRECISION, ENUM, JSON
 from sqlalchemy.dialects.postgresql.base import PGInspector
 from sqlalchemy.types import String, TypeEngine
 
-from superset.db_engine_specs.base import BaseEngineSpec, BaseParametersMixin
+from superset.db_engine_specs.base import BaseEngineSpec, BasicParametersMixin
 from superset.errors import SupersetErrorType
 from superset.exceptions import SupersetException
 from superset.utils import core as utils
@@ -155,14 +155,16 @@ class PostgresBaseEngineSpec(BaseEngineSpec):
         return "(timestamp 'epoch' + {col} * interval '1 second')"
 
 
-class PostgresEngineSpec(PostgresBaseEngineSpec, BaseParametersMixin):
+class PostgresEngineSpec(PostgresBaseEngineSpec, BasicParametersMixin):
     engine = "postgresql"
     engine_aliases = {"postgres"}
 
-    drivername = "postgresql+psycopg2"
+    default_driver = "psycopg2"
     sqlalchemy_uri_placeholder = (
-        "postgresql+psycopg2://user:password@host:port/dbname[?key=value&key=value...]"
+        "postgresql://user:password@host:port/dbname[?key=value&key=value...]"
     )
+    # https://www.postgresql.org/docs/9.1/libpq-ssl.html#LIBQ-SSL-CERTIFICATES
+    encryption_parameters = {"sslmode": "verify-ca"}
 
     max_column_name_length = 63
     try_remove_schema_from_table_name = False

@@ -334,6 +334,7 @@ DEFAULT_FEATURE_FLAGS: Dict[str, bool] = {
     # See `PR 7935 <https://github.com/apache/superset/pull/7935>`_ for more details.
     "ENABLE_EXPLORE_JSON_CSRF_PROTECTION": False,
     "ENABLE_TEMPLATE_PROCESSING": False,
+    "ENABLE_TEMPLATE_REMOVE_FILTERS": False,
     "KV_STORE": False,
     # When this feature is enabled, nested types in Presto will be
     # expanded into extra columns and/or arrays. This is experimental,
@@ -1072,13 +1073,13 @@ SQL_VALIDATORS_BY_ENGINE = {
 
 # A list of preferred databases, in order. These databases will be
 # displayed prominently in the "Add Database" dialog. You should
-# use the "engine" attribute of the corresponding DB engine spec in
-# `superset/db_engine_specs/`.
+# use the "engine_name" attribute of the corresponding DB engine spec
+# in `superset/db_engine_specs/`.
 PREFERRED_DATABASES: List[str] = [
-    # "postgresql",
-    # "presto",
-    # "mysql",
-    # "sqlite",
+    # "PostgreSQL",
+    # "Presto",
+    # "MySQL",
+    # "SQLite",
     # etc.
 ]
 

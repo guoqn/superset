@@ -1255,6 +1255,7 @@ class BaseEngineSpec:  # pylint: disable=too-many-public-methods
         )
 
     @classmethod
+    @utils.memoized
     def get_column_spec(
         cls,
         native_type: Optional[str],
@@ -1294,7 +1295,7 @@ class BaseEngineSpec:  # pylint: disable=too-many-public-methods
 
 # schema for adding a database by providing parameters instead of the
 # full SQLAlchemy URI
-class BaseParametersSchema(Schema):
+class BasicParametersSchema(Schema):
     username = fields.String(required=True, allow_none=True, description=__("Username"))
     password = fields.String(allow_none=True, description=__("Password"))
     host = fields.String(required=True, description=__("Hostname or IP address"))
@@ -1303,18 +1304,22 @@ class BaseParametersSchema(Schema):
     query = fields.Dict(
         keys=fields.Str(), values=fields.Raw(), description=__("Additional parameters")
     )
+    encryption = fields.Boolean(
+        required=False, description=__("Use an encrypted connection to the database")
+    )
 
 
-class BaseParametersType(TypedDict, total=False):
+class BasicParametersType(TypedDict, total=False):
     username: Optional[str]
     password: Optional[str]
     host: str
     port: int
     database: str
     query: Dict[str, Any]
+    encryption: bool
 
 
-class BaseParametersMixin:
+class BasicParametersMixin:
 
     """
     Mixin for configuring DB engine specs via a dictionary.
@@ -1323,38 +1328,55 @@ class BaseParametersMixin:
     individual parameters, instead of the full SQLAlchemy URI. This
     mixin is for the most common pattern of URI:
 
-        drivername://user:password@host:port/dbname[?key=value&key=value...]
+        engine+driver://user:password@host:port/dbname[?key=value&key=value...]
 
     """
 
     # schema describing the parameters used to configure the DB
-    parameters_schema = BaseParametersSchema()
+    parameters_schema = BasicParametersSchema()
 
     # recommended driver name for the DB engine spec
-    drivername = ""
+    default_driver = ""
 
     # placeholder with the SQLAlchemy URI template
     sqlalchemy_uri_placeholder = (
-        "drivername://user:password@host:port/dbname[?key=value&key=value...]"
+        "engine+driver://user:password@host:port/dbname[?key=value&key=value...]"
     )
 
+    # query parameter to enable encryption in the database connection
+    # for Postgres this would be `{"sslmode": "verify-ca"}`, eg.
+    encryption_parameters: Dict[str, str] = {}
+
     @classmethod
-    def build_sqlalchemy_uri(cls, parameters: BaseParametersType) -> str:
+    def build_sqlalchemy_uri(
+        cls,
+        parameters: BasicParametersType,
+        encryted_extra: Optional[Dict[str, str]] = None,
+    ) -> str:
+        query = parameters.get("query", {})
+        if parameters.get("encryption"):
+            if not cls.encryption_parameters:
+                raise Exception("Unable to build a URL with encryption enabled")
+            query.update(cls.encryption_parameters)
+
         return str(
             URL(
-                cls.drivername,
+                f"{cls.engine}+{cls.default_driver}".rstrip("+"),  # type: ignore
                 username=parameters.get("username"),
                 password=parameters.get("password"),
                 host=parameters["host"],
                 port=parameters["port"],
                 database=parameters["database"],
-                query=parameters.get("query", {}),
+                query=query,
             )
         )
 
-    @staticmethod
-    def get_parameters_from_uri(uri: str) -> BaseParametersType:
+    @classmethod
+    def get_parameters_from_uri(cls, uri: str) -> BasicParametersType:
         url = make_url(uri)
+        encryption = all(
+            item in url.query.items() for item in cls.encryption_parameters.items()
+        )
         return {
             "username": url.username,
             "password": url.password,
@@ -1362,10 +1384,13 @@ class BaseParametersMixin:
             "port": url.port,
             "database": url.database,
             "query": url.query,
+            "encryption": encryption,
         }
 
     @classmethod
-    def validate_parameters(cls, parameters: BaseParametersType) -> List[SupersetError]:
+    def validate_parameters(
+        cls, parameters: BasicParametersType
+    ) -> List[SupersetError]:
         """
         Validates any number of parameters, for progressive validation.
 
@@ -1422,6 +1447,9 @@ class BaseParametersMixin:
         """
         Return configuration parameters as OpenAPI.
         """
+        if not cls.parameters_schema:
+            return None
+
         spec = APISpec(
             title="Database Parameters",
             version="1.0.0",

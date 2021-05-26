@@ -47,19 +47,28 @@ export const OptionControlContainer = styled.div<{
 `;
 
 export const Label = styled.div`
-  display: flex;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  align-items: center;
-  white-space: nowrap;
-  padding-left: ${({ theme }) => theme.gridUnit}px;
-  svg {
-    margin-right: ${({ theme }) => theme.gridUnit}px;
-  }
-  .option-label {
-    display: inline;
-  }
+  ${({ theme }) => `
+    display: flex;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    align-items: center;
+    white-space: nowrap;
+    padding-left: ${theme.gridUnit}px;
+    svg {
+      margin-right: ${theme.gridUnit}px;
+      margin-left: ${theme.gridUnit}px;
+    }
+    .type-label {
+      margin-right: ${theme.gridUnit * 2}px;
+      margin-left: ${theme.gridUnit}px;
+      font-weight: ${theme.typography.weights.normal};
+      width: auto;
+    }
+    .option-label {
+      display: inline;
+    }
+  `}
 `;
 
 export const CaretContainer = styled.div`
@@ -167,6 +176,7 @@ export const OptionControlLabel = ({
   type,
   index,
   isExtra,
+  tooltipTitle,
   ...props
 }: {
   label: string | React.ReactNode;
@@ -181,6 +191,7 @@ export const OptionControlLabel = ({
   type: string;
   index: number;
   isExtra?: boolean;
+  tooltipTitle: string;
 }) => {
   const theme = useTheme();
   const ref = useRef<HTMLDivElement>(null);
@@ -246,7 +257,7 @@ export const OptionControlLabel = ({
     if (savedMetric?.metric_name) {
       return <StyledMetricOption metric={savedMetric} />;
     }
-    return <Tooltip title={label}>{label}</Tooltip>;
+    return <Tooltip title={tooltipTitle}>{label}</Tooltip>;
   };
 
   const getOptionControlContent = () => (

@@ -19,6 +19,7 @@
 """Unit tests for Superset"""
 import dataclasses
 import json
+from collections import defaultdict
 from io import BytesIO
 from unittest import mock
 from zipfile import is_zipfile, ZipFile
@@ -35,8 +36,11 @@ from superset import db, security_manager
 from superset.connectors.sqla.models import SqlaTable
 from superset.db_engine_specs.mysql import MySQLEngineSpec
 from superset.db_engine_specs.postgres import PostgresEngineSpec
+from superset.db_engine_specs.redshift import RedshiftEngineSpec
+from superset.db_engine_specs.bigquery import BigQueryEngineSpec
+from superset.db_engine_specs.hana import HanaEngineSpec
 from superset.errors import SupersetError
-from superset.models.core import Database
+from superset.models.core import Database, ConfigurationMethod
 from superset.models.reports import ReportSchedule, ReportScheduleType
 from superset.utils.core import get_example_database, get_main_database
 from tests.base_tests import SupersetTestCase
@@ -228,6 +232,7 @@ class TestDatabaseApi(SupersetTestCase):
         database_data = {
             "database_name": "test-create-database",
             "sqlalchemy_uri": example_db.sqlalchemy_uri_decrypted,
+            "configuration_method": ConfigurationMethod.SQLALCHEMY_FORM,
             "server_cert": None,
             "extra": json.dumps(extra),
         }
@@ -238,8 +243,71 @@ class TestDatabaseApi(SupersetTestCase):
         self.assertEqual(rv.status_code, 201)
         # Cleanup
         model = db.session.query(Database).get(response.get("id"))
+        assert model.configuration_method == ConfigurationMethod.SQLALCHEMY_FORM
         db.session.delete(model)
         db.session.commit()
+
+    def test_create_database_invalid_configuration_method(self):
+        """
+        Database API: Test create with an invalid configuration method.
+        """
+        extra = {
+            "metadata_params": {},
+            "engine_params": {},
+            "metadata_cache_timeout": {},
+            "schemas_allowed_for_csv_upload": [],
+        }
+
+        self.login(username="admin")
+        example_db = get_example_database()
+        if example_db.backend == "sqlite":
+            return
+        database_data = {
+            "database_name": "test-create-database",
+            "sqlalchemy_uri": example_db.sqlalchemy_uri_decrypted,
+            "configuration_method": "BAD_FORM",
+            "server_cert": None,
+            "extra": json.dumps(extra),
+        }
+
+        uri = "api/v1/database/"
+        rv = self.client.post(uri, json=database_data)
+        response = json.loads(rv.data.decode("utf-8"))
+        assert response == {
+            "message": {"configuration_method": ["Invalid enum value BAD_FORM"]}
+        }
+        assert rv.status_code == 400
+
+    # add this test back in when config method becomes required for creation.
+    # def test_create_database_no_configuration_method(self):
+    #     """
+    #     Database API: Test create with no config method.
+    #     """
+    #     extra = {
+    #         "metadata_params": {},
+    #         "engine_params": {},
+    #         "metadata_cache_timeout": {},
+    #         "schemas_allowed_for_csv_upload": [],
+    #     }
+
+    #     self.login(username="admin")
+    #     example_db = get_example_database()
+    #     if example_db.backend == "sqlite":
+    #         return
+    #     database_data = {
+    #         "database_name": "test-create-database",
+    #         "sqlalchemy_uri": example_db.sqlalchemy_uri_decrypted,
+    #         "server_cert": None,
+    #         "extra": json.dumps(extra),
+    #     }
+
+    #     uri = "api/v1/database/"
+    #     rv = self.client.post(uri, json=database_data)
+    #     response = json.loads(rv.data.decode("utf-8"))
+    #     assert response == {
+    #         "message": {"configuration_method": ["Missing data for required field."]}
+    #     }
+    #     assert rv.status_code == 400
 
     def test_create_database_server_cert_validate(self):
         """
@@ -253,6 +321,7 @@ class TestDatabaseApi(SupersetTestCase):
         database_data = {
             "database_name": "test-create-database-invalid-cert",
             "sqlalchemy_uri": example_db.sqlalchemy_uri_decrypted,
+            "configuration_method": ConfigurationMethod.SQLALCHEMY_FORM,
             "server_cert": "INVALID CERT",
         }
 
@@ -275,6 +344,7 @@ class TestDatabaseApi(SupersetTestCase):
         database_data = {
             "database_name": "test-create-database-invalid-json",
             "sqlalchemy_uri": example_db.sqlalchemy_uri_decrypted,
+            "configuration_method": ConfigurationMethod.SQLALCHEMY_FORM,
             "encrypted_extra": '{"A": "a", "B", "C"}',
             "extra": '["A": "a", "B", "C"]',
         }
@@ -315,6 +385,7 @@ class TestDatabaseApi(SupersetTestCase):
         database_data = {
             "database_name": "test-create-database-invalid-extra",
             "sqlalchemy_uri": example_db.sqlalchemy_uri_decrypted,
+            "configuration_method": ConfigurationMethod.SQLALCHEMY_FORM,
             "extra": json.dumps(extra),
         }
 
@@ -344,6 +415,7 @@ class TestDatabaseApi(SupersetTestCase):
         database_data = {
             "database_name": "examples",
             "sqlalchemy_uri": example_db.sqlalchemy_uri_decrypted,
+            "configuration_method": ConfigurationMethod.SQLALCHEMY_FORM,
         }
 
         uri = "api/v1/database/"
@@ -363,6 +435,7 @@ class TestDatabaseApi(SupersetTestCase):
         database_data = {
             "database_name": "test-database-invalid-uri",
             "sqlalchemy_uri": "wrong_uri",
+            "configuration_method": ConfigurationMethod.SQLALCHEMY_FORM,
         }
 
         uri = "api/v1/database/"
@@ -384,6 +457,7 @@ class TestDatabaseApi(SupersetTestCase):
         database_data = {
             "database_name": "test-create-sqlite-database",
             "sqlalchemy_uri": "sqlite:////some.db",
+            "configuration_method": ConfigurationMethod.SQLALCHEMY_FORM,
         }
 
         uri = "api/v1/database/"
@@ -412,6 +486,7 @@ class TestDatabaseApi(SupersetTestCase):
         database_data = {
             "database_name": "test-create-database-wrong-password",
             "sqlalchemy_uri": example_db.sqlalchemy_uri_decrypted,
+            "configuration_method": ConfigurationMethod.SQLALCHEMY_FORM,
         }
 
         uri = "api/v1/database/"
@@ -433,7 +508,10 @@ class TestDatabaseApi(SupersetTestCase):
             "test-database", example_db.sqlalchemy_uri_decrypted
         )
         self.login(username="admin")
-        database_data = {"database_name": "test-database-updated"}
+        database_data = {
+            "database_name": "test-database-updated",
+            "configuration_method": ConfigurationMethod.SQLALCHEMY_FORM,
+        }
         uri = f"api/v1/database/{test_database.id}"
         rv = self.client.put(uri, json=database_data)
         self.assertEqual(rv.status_code, 200)
@@ -530,6 +608,49 @@ class TestDatabaseApi(SupersetTestCase):
         self.assertIn(
             "Invalid connection string", response["message"]["sqlalchemy_uri"][0],
         )
+
+        db.session.delete(test_database)
+        db.session.commit()
+
+    def test_update_database_with_invalid_configuration_method(self):
+        """
+        Database API: Test update
+        """
+        example_db = get_example_database()
+        test_database = self.insert_database(
+            "test-database", example_db.sqlalchemy_uri_decrypted
+        )
+        self.login(username="admin")
+        database_data = {
+            "database_name": "test-database-updated",
+            "configuration_method": "BAD_FORM",
+        }
+        uri = f"api/v1/database/{test_database.id}"
+        rv = self.client.put(uri, json=database_data)
+        response = json.loads(rv.data.decode("utf-8"))
+        assert response == {
+            "message": {"configuration_method": ["Invalid enum value BAD_FORM"]}
+        }
+        assert rv.status_code == 400
+
+        db.session.delete(test_database)
+        db.session.commit()
+
+    def test_update_database_with_no_configuration_method(self):
+        """
+        Database API: Test update
+        """
+        example_db = get_example_database()
+        test_database = self.insert_database(
+            "test-database", example_db.sqlalchemy_uri_decrypted
+        )
+        self.login(username="admin")
+        database_data = {
+            "database_name": "test-database-updated",
+        }
+        uri = f"api/v1/database/{test_database.id}"
+        rv = self.client.put(uri, json=database_data)
+        assert rv.status_code == 200
 
         db.session.delete(test_database)
         db.session.commit()
@@ -730,8 +851,8 @@ class TestDatabaseApi(SupersetTestCase):
         """
         Database API: Test database schemas
         """
-        self.login("admin")
-        database = db.session.query(Database).first()
+        self.login(username="admin")
+        database = db.session.query(Database).filter_by(database_name="examples").one()
         schemas = database.get_all_schema_names()
 
         rv = self.client.get(f"api/v1/database/{database.id}/schemas/")
@@ -1196,7 +1317,7 @@ class TestDatabaseApi(SupersetTestCase):
         masked_database_config = database_config.copy()
         masked_database_config[
             "sqlalchemy_uri"
-        ] = "postgresql://username:XXXXXXXXXX@host:12345/db"
+        ] = "vertica+vertica_python://hackathon:XXXXXXXXXX@host:5433/dbname?ssl=1"
 
         buf = BytesIO()
         with ZipFile(buf, "w") as bundle:
@@ -1223,7 +1344,8 @@ class TestDatabaseApi(SupersetTestCase):
         )
         assert database.database_name == "imported_database"
         assert (
-            database.sqlalchemy_uri == "postgresql://username:XXXXXXXXXX@host:12345/db"
+            database.sqlalchemy_uri
+            == "vertica+vertica_python://hackathon:XXXXXXXXXX@host:5433/dbname?ssl=1"
         )
         assert database.password == "SECRET"
 
@@ -1250,22 +1372,26 @@ class TestDatabaseApi(SupersetTestCase):
     @mock.patch("superset.databases.api.get_available_engine_specs")
     @mock.patch("superset.databases.api.app")
     def test_available(self, app, get_available_engine_specs):
-        app.config = {"PREFERRED_DATABASES": ["postgresql"]}
-        get_available_engine_specs.return_value = [
-            MySQLEngineSpec,
-            PostgresEngineSpec,
-        ]
+        app.config = {"PREFERRED_DATABASES": ["PostgreSQL", "Google BigQuery"]}
+        get_available_engine_specs.return_value = {
+            PostgresEngineSpec: {"psycopg2"},
+            BigQueryEngineSpec: {"bigquery"},
+            MySQLEngineSpec: {"mysqlconnector", "mysqldb"},
+            RedshiftEngineSpec: {"psycopg2"},
+            HanaEngineSpec: {""},
+        }
 
         self.login(username="admin")
         uri = "api/v1/database/available/"
 
         rv = self.client.get(uri)
         response = json.loads(rv.data.decode("utf-8"))
-
         assert rv.status_code == 200
         assert response == {
             "databases": [
                 {
+                    "available_drivers": ["psycopg2"],
+                    "default_driver": "psycopg2",
                     "engine": "postgresql",
                     "name": "PostgreSQL",
                     "parameters": {
@@ -1273,6 +1399,10 @@ class TestDatabaseApi(SupersetTestCase):
                             "database": {
                                 "description": "Database name",
                                 "type": "string",
+                            },
+                            "encryption": {
+                                "description": "Use an encrypted connection to the database",
+                                "type": "boolean",
                             },
                             "host": {
                                 "description": "Hostname or IP address",
@@ -1303,9 +1433,118 @@ class TestDatabaseApi(SupersetTestCase):
                         "type": "object",
                     },
                     "preferred": True,
-                    "sqlalchemy_uri_placeholder": "postgresql+psycopg2://user:password@host:port/dbname[?key=value&key=value...]",
+                    "sqlalchemy_uri_placeholder": "postgresql://user:password@host:port/dbname[?key=value&key=value...]",
                 },
-                {"engine": "mysql", "name": "MySQL", "preferred": False},
+                {
+                    "available_drivers": ["bigquery"],
+                    "default_driver": "bigquery",
+                    "engine": "bigquery",
+                    "name": "Google BigQuery",
+                    "parameters": {
+                        "properties": {
+                            "credentials_info": {
+                                "description": "Contents of BigQuery JSON credentials.",
+                                "type": "string",
+                                "x-encrypted-extra": True,
+                            }
+                        },
+                        "type": "object",
+                    },
+                    "preferred": True,
+                    "sqlalchemy_uri_placeholder": "bigquery://{project_id}",
+                },
+                {
+                    "available_drivers": ["psycopg2"],
+                    "default_driver": "",
+                    "engine": "redshift",
+                    "name": "Amazon Redshift",
+                    "preferred": False,
+                },
+                {
+                    "available_drivers": ["mysqlconnector", "mysqldb"],
+                    "default_driver": "mysqldb",
+                    "engine": "mysql",
+                    "name": "MySQL",
+                    "parameters": {
+                        "properties": {
+                            "database": {
+                                "description": "Database name",
+                                "type": "string",
+                            },
+                            "encryption": {
+                                "description": "Use an encrypted connection to the database",
+                                "type": "boolean",
+                            },
+                            "host": {
+                                "description": "Hostname or IP address",
+                                "type": "string",
+                            },
+                            "password": {
+                                "description": "Password",
+                                "nullable": True,
+                                "type": "string",
+                            },
+                            "port": {
+                                "description": "Database port",
+                                "format": "int32",
+                                "type": "integer",
+                            },
+                            "query": {
+                                "additionalProperties": {},
+                                "description": "Additional parameters",
+                                "type": "object",
+                            },
+                            "username": {
+                                "description": "Username",
+                                "nullable": True,
+                                "type": "string",
+                            },
+                        },
+                        "required": ["database", "host", "port", "username"],
+                        "type": "object",
+                    },
+                    "preferred": False,
+                    "sqlalchemy_uri_placeholder": "mysql://user:password@host:port/dbname[?key=value&key=value...]",
+                },
+                {
+                    "available_drivers": [""],
+                    "engine": "hana",
+                    "name": "SAP HANA",
+                    "preferred": False,
+                },
+            ]
+        }
+
+    @mock.patch("superset.databases.api.get_available_engine_specs")
+    @mock.patch("superset.databases.api.app")
+    def test_available_no_default(self, app, get_available_engine_specs):
+        app.config = {"PREFERRED_DATABASES": ["MySQL"]}
+        get_available_engine_specs.return_value = {
+            MySQLEngineSpec: {"mysqlconnector"},
+            HanaEngineSpec: {""},
+        }
+
+        self.login(username="admin")
+        uri = "api/v1/database/available/"
+
+        rv = self.client.get(uri)
+        response = json.loads(rv.data.decode("utf-8"))
+        assert rv.status_code == 200
+        assert response == {
+            "databases": [
+                {
+                    "available_drivers": ["mysqlconnector"],
+                    "default_driver": "mysqldb",
+                    "engine": "mysql",
+                    "name": "MySQL",
+                    "preferred": True,
+                },
+                {
+                    "available_drivers": [""],
+                    "engine": "hana",
+                    "name": "SAP HANA",
+                    "preferred": False,
+                },
             ]
         }
 
@@ -1369,15 +1608,18 @@ class TestDatabaseApi(SupersetTestCase):
         url = "api/v1/database/validate_parameters"
         payload = {
             "engine": "postgresql",
-            "parameters": {
+            "parameters": defaultdict(dict),
+        }
+        payload["parameters"].update(
+            {
                 "host": "",
                 "port": 5432,
                 "username": "",
                 "password": "",
                 "database": "",
                 "query": {},
-            },
-        }
+            }
+        )
         rv = self.client.post(url, json=payload)
         response = json.loads(rv.data.decode("utf-8"))
 
@@ -1409,15 +1651,18 @@ class TestDatabaseApi(SupersetTestCase):
         url = "api/v1/database/validate_parameters"
         payload = {
             "engine": "postgresql",
-            "parameters": {
+            "parameters": defaultdict(dict),
+        }
+        payload["parameters"].update(
+            {
                 "host": "localhost",
                 "port": 5432,
                 "username": "",
                 "password": "",
                 "database": "",
                 "query": {},
-            },
-        }
+            }
+        )
         rv = self.client.post(url, json=payload)
         response = json.loads(rv.data.decode("utf-8"))
 
